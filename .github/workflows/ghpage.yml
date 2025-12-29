@@ -22,6 +22,7 @@ jobs:
       DO_NOT_FETCH_FROM_GHOST: true
       HASHNODE_API_URL: https://gql.hashnode.com
       FRENCH_HASHNODE_HOST: frenchcodecamp.hashnode.dev
+      SITE_DOMAIN: davy39.github.io
 
     steps:
       - name: Checkout
