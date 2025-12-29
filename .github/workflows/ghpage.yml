@@ -5,6 +5,9 @@ on:
     branches:
       - main # ou le nom de votre branche par défaut
   workflow_dispatch:
+  schedule:
+    # Exécution tous les jours à 00:00 UTC
+    - cron: '0 0 * * *'
 # Autorisations nécessaires pour GitHub Pages
 permissions:
   contents: read
