@@ -1,0 +1,124 @@
+name: Daily Translation & Build
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - french
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # ====================================================
+  # JOB 1 : TRADUCTION & MISE À JOUR
+  # ====================================================
+  check-and-translate:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.auto-commit.outputs.changes_detected }}
+
+    env:
+      HASHNODE_API_KEY: ${{ secrets.HASHNODE_API_KEY }}
+      HASHNODE_PUBLICATION_ID: ${{ secrets.HASHNODE_PUBLICATION_ID }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+    steps:
+      - name: Checkout Translation Tasks
+        uses: actions/checkout@v4
+        with:
+          repository: davy39/news-translation-tasks
+          ref: french
+          token: ${{ secrets.ACTION_TRIGGER_PAT }}
+          path: i18n-tasks
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install requests pyyaml openai python-dotenv
+
+      - name: Run Translation Script
+        run: python i18n-tasks/scripts/auto_translate_french.py
+
+      - name: Commit & Push changes
+        id: auto-commit
+        run: |
+          cd i18n-tasks
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "🤖 Daily update: New articles translated [skip ci]"
+            git push
+            echo "changes_detected=true" >> $GITHUB_OUTPUT
+            echo "✅ Nouveaux articles détectés et poussés."
+          else
+            echo "changes_detected=false" >> $GITHUB_OUTPUT
+            echo "💤 Aucun nouvel article."
+          fi
+
+  # ====================================================
+  # JOB 2 : BUILD & DEPLOY (Conditionnel)
+  # ====================================================
+  build-and-deploy:
+    needs: check-and-translate
+    if: needs.check-and-translate.outputs.has_changes == 'true'
+
+    runs-on: ubuntu-latest
+
+    env:
+      LOCALE_FOR_UI: french
+      LOCALE_FOR_GHOST: french
+      DO_NOT_FETCH_FROM_GHOST: true
+      HASHNODE_API_URL: https://gql.hashnode.com
+      FRENCH_HASHNODE_HOST: frenchcodecamp.hashnode.dev
+      SITE_DOMAIN: davy39.github.io
+      ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+      ALGOLIA_API_KEY: ${{ secrets.ALGOLIA_API_KEY }}
+
+    steps:
+      - name: Checkout Site Code
+        uses: actions/checkout@v4
+        with:
+          ref: french
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Patch config/index.js
+        run: |
+          sed -i "s|const computedPath = lang === 'english' ? '/news' : \`/\${lang}/news\`;|const computedPath = '/news';|" config/index.js
+          sed -i "s|return \`https://www.\${computedDomain}\${computedPath}/\`;|return \`https://\${computedDomain}\${computedPath}/\`;|" config/index.js
+
+      - name: Build project
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
